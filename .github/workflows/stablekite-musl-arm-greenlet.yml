@@ -1,0 +1,47 @@
+name: StableKite private source musl ARM Greenlet proof
+
+on:
+  push:
+    branches: [stablekite/musl3152-greenlet-arm-proof-v1]
+    paths:
+      - Tools/stablekite/musl_arm_greenlet.py
+      - .github/workflows/stablekite-musl-arm-greenlet.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build separate CPython release sources and run unchanged controls
+        shell: bash
+        env:
+          STABLEKITE_CONTROLLER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          uname -a > evidence/native-runner.txt
+          test "$(uname -m)" = aarch64
+          docker pull --platform linux/arm64 python:3-alpine
+          docker image inspect python:3-alpine > evidence/container-image.json
+          docker run --rm --platform linux/arm64 --cpus 2 --memory 4g \
+            --env STABLEKITE_CONTROLLER_SHA \
+            --mount "type=bind,source=$PWD,target=/controller,readonly" \
+            --mount "type=bind,source=$PWD/evidence,target=/output" \
+            python:3-alpine sh -ec \
+            'apk add --no-cache build-base clang compiler-rt patchelf linux-headers nodejs npm ca-certificates zlib-dev bzip2-dev xz-dev libffi-dev openssl-dev readline-dev sqlite-dev; exec python -I -B /controller/Tools/stablekite/musl_arm_greenlet.py'
+      - name: Retain exact original failures and successful evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: private-source-errno-musl-ARM-Greenlet
+          path: evidence/
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 6
